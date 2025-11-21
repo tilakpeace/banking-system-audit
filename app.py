@@ -356,7 +356,11 @@ def get_account(account_id):
 
 @app.route('/accounts' )
 def list_accounts():
-    return "test"
+    accounts_list = {acc_id: acc.to_dict() for acc_id, acc in accounts_snapshot.items()}
+    return jsonify({
+        'total_accounts': len(accounts_list),
+        'accounts': accounts_list
+    })
 
 @app.route('/events' )
 def get_eventss():
