@@ -45,6 +45,17 @@ class BankAccount:
     def close(self, reason: str):
         self.status = 'closed'
 
+    def to_dict(self):
+        return {
+            'account_id': self.account_id,
+            'customer_name': self.customer_name,
+            'balance': self.balance,
+            'status': self.status,
+            'transaction_count': len(self.transactions),
+            'transactions': self.transactions,
+            'created_at': self.created_at.isoformat()
+        }
+
 
 
 
@@ -336,8 +347,11 @@ def close(account_id):
 
 @app.route('/accounts/<account_id>' )
 def get_account(account_id):
-    print(account_id)
-    return "test"
+    if account_id not in accounts_snapshot:
+        return jsonify({'error': 'Account not found'}), 404
+        
+    account = accounts_snapshot[account_id]
+    return jsonify(account.to_dict())
 
 
 @app.route('/accounts' )
