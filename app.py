@@ -42,6 +42,9 @@ class BankAccount:
             'balance_after': self.balance
         })
 
+    def close(self, reason: str):
+        self.status = 'closed'
+
 
 
 
@@ -84,6 +87,10 @@ def apply_event(event: Dict[str, Any]):
         if account.status == 'active':
             account.withdraw(data['amount'], data.get('description'))
             
+    elif event_type == 'account_closed':
+        account = accounts_snapshot.get(account_id)
+        if account:
+            account.close(data.get('reason', ''))
 
 
 
@@ -200,6 +207,7 @@ def withdraw(account_id):
         if accounts_snapshot[account_id].status != 'active':
             return jsonify({'error': 'Account is not active'}), 400
         
+        # Verifying sufficient balance
         if amount > accounts_snapshot[account_id].balance:
             return jsonify({'error': 'Insufficient funds'}), 400
         
@@ -230,8 +238,70 @@ def withdraw(account_id):
 
 @app.route('/accounts/<account_id>/transfer',methods=['POST'] )
 def transfer(account_id):
-    print(account_id)
-    return "test"
+    try:
+        data = request.get_json()
+        from_account = account_id
+        to_account = data['to_account_id']
+        amount = float(data['amount'])
+        
+
+        # Check if source account is not opened
+        if from_account not in accounts_snapshot:
+            return jsonify({'error': 'Source account not found'}), 404
+
+        # Check if destination account is not opened
+        if to_account not in accounts_snapshot:
+            return jsonify({'error': 'Destination account not found'}), 404
+            
+        from_acc = accounts_snapshot[from_account]
+        to_acc = accounts_snapshot[to_account]
+        
+        # Check if account is closed or not
+        if from_acc.status != 'active' or to_acc.status != 'active':
+            return jsonify({'error': 'One or both accounts are not active'}), 400
+        
+        # Checking sufficient balance
+        if amount > from_acc.balance:
+            return jsonify({'error': 'Insufficient funds for transfer'}), 400
+        
+        transfer_id = str(uuid.uuid4())
+        
+        event_transfer_from=create_event(
+            'funds_withdrawn',
+            from_account,
+            {
+                'amount': amount,
+                'description': "Transfer to {to_account}",
+                'transfer_id': transfer_id
+            }
+        )
+        
+        apply_event(event_transfer_from)
+
+        event_transfer_to=create_event(
+            'funds_deposited',
+            to_account,
+            {
+                'amount': amount,
+                'description': "Transfer from {from_account}",
+                'transfer_id': transfer_id
+            }
+        )
+
+        apply_event(event_transfer_to)
+
+        return jsonify({
+            'message': 'Transfer successful',
+            'transfer_id': transfer_id,
+            'amount': amount,
+            'from_account_balance': accounts_snapshot[from_account].balance,
+            'to_account_balance': accounts_snapshot[to_account].balance
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+
 
 @app.route('/accounts/<account_id>/close',methods=['POST'] )
 def close(account_id):
