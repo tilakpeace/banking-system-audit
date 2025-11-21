@@ -1,6 +1,74 @@
-from flask import Flask
+from flask import Flask, request, jsonify
+import uuid
+from typing import Dict, Any
+from datetime import datetime
 
 app = Flask(__name__)
+
+# In-memory event store
+events = []
+accounts_snapshot = {}
+
+
+class BankAccount:
+    def __init__(self, account_id: str, customer_name: str, initial_balance: float = 0):
+        self.account_id = account_id
+        self.customer_name = customer_name
+        self.balance = initial_balance
+        self.status = 'active'
+        self.transactions = []
+        self.created_at = datetime.now()
+
+
+    def deposit(self, amount: float, description: str):
+        self.balance += amount
+        self.transactions.append({
+            'type': 'deposit',
+            'amount': amount,
+            'description': description,
+            'timestamp': datetime.now(),
+            'balance_after': self.balance
+        })
+
+
+
+
+
+def create_event(event_type: str, account_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a new event"""
+    event = {
+        'event_id': str(uuid.uuid4()),
+        'event_type': event_type,
+        'account_id': account_id,
+        'data': data,
+        'timestamp': datetime.now().isoformat(),
+    }
+    
+    events.append(event)
+    return event
+
+
+def apply_event(event: Dict[str, Any]):
+    """Apply event to current state"""
+    event_type = event['event_type']
+    account_id = event['account_id']
+    data = event['data']
+    
+    if event_type == 'account_opened':
+        account = BankAccount(
+            account_id=account_id,
+            customer_name=data['customer_name'],
+            initial_balance=data.get('initial_balance', 0)
+        )
+        accounts_snapshot[account_id] = account
+
+        
+    elif event_type == 'funds_deposited':
+        account = accounts_snapshot.get(account_id)
+        if account.status == 'active':
+            account.deposit(data['amount'], data.get('description'))
+            
+
 
 
 @app.route('/')
@@ -28,12 +96,77 @@ def home():
 
 @app.route('/accounts/open',methods=['POST'] )
 def open_account():
-    return "test"
+    try:
+            data=request.get_json()
+
+            account_id = str(uuid.uuid4())[:8]  # Short ID for demo
+
+
+            event = create_event(
+                "account_opened",
+                account_id,
+                {
+                    'customer_name': data.get('customer_name', 'Unknown'),
+                    'initial_balance': float(0),
+                    'account_type': data.get('account_type', 'checking')
+                }
+            )
+
+            apply_event(event)
+
+            return jsonify(
+                {
+                    'message':'Account opened successfully',
+                    'account_id':account_id,
+                    'balance':accounts_snapshot[account_id].balance
+
+                }
+            ),201
+
+
+
+    except Exception as e:
+        return jsonify({"error":str(e)}),400    
+
+
 
 @app.route('/accounts/<account_id>/deposit',methods=['POST'] )
 def deposit(account_id):
-    print(account_id)
-    return "test"
+    try:
+        data = request.get_json()
+        amount = float(data['amount'])
+
+        # Check if account is not opened
+        if account_id not in accounts_snapshot:
+            return jsonify({'error': 'Account not found'}), 404
+        
+        # Check if account is closed or not
+        if accounts_snapshot[account_id].status != 'active':
+            return jsonify({'error': 'Account is not active'}), 400
+
+        event = create_event(
+            'funds_deposited',
+            account_id,
+            {
+                'amount': amount,
+                'description': data.get('description', 'Deposit')
+            }
+        )
+
+        apply_event(event)
+        
+        return jsonify({
+            'message': 'Deposit successful',
+            'account_id': account_id,
+            'amount': amount,
+            'new_balance': accounts_snapshot[account_id].balance
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+
+
 
 @app.route('/accounts/<account_id>/withdraw',methods=['POST'] )
 def withdraw(account_id):
