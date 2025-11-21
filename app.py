@@ -305,8 +305,33 @@ def transfer(account_id):
 
 @app.route('/accounts/<account_id>/close',methods=['POST'] )
 def close(account_id):
-    print(account_id)
-    return "test"
+    try:
+        if account_id not in accounts_snapshot:
+            return jsonify({'error': 'Account not found'}), 404
+            
+        account = accounts_snapshot[account_id]
+        if account.status == 'closed':
+            return jsonify({'error': 'Account already closed'}), 400
+        
+        event = create_event(
+            'account_closed',
+            account_id,
+            {
+                'final_balance': account.balance,
+                'reason': request.get_json().get('reason', 'Customer request')
+            }
+        )
+        
+        apply_event(event)
+        
+        return jsonify({
+            'message': 'Account closed successfully',
+            'account_id': account_id,
+            'final_balance': account.balance
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
 
 
 @app.route('/accounts/<account_id>' )
