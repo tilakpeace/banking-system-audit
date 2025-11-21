@@ -30,6 +30,17 @@ class BankAccount:
             'balance_after': self.balance
         })
 
+    def withdraw(self, amount: float, description: str):
+        if amount > self.balance:
+            raise ValueError("Insufficient funds")
+        self.balance -= amount
+        self.transactions.append({
+            'type': 'withdrawal', 
+            'amount': amount,
+            'description': description,
+            'timestamp': datetime.now(),
+            'balance_after': self.balance
+        })
 
 
 
@@ -68,6 +79,12 @@ def apply_event(event: Dict[str, Any]):
         if account.status == 'active':
             account.deposit(data['amount'], data.get('description'))
             
+    elif event_type == 'funds_withdrawn':
+        account = accounts_snapshot.get(account_id)
+        if account.status == 'active':
+            account.withdraw(data['amount'], data.get('description'))
+            
+
 
 
 
@@ -170,8 +187,46 @@ def deposit(account_id):
 
 @app.route('/accounts/<account_id>/withdraw',methods=['POST'] )
 def withdraw(account_id):
-    print(account_id)
-    return "test"
+
+    try:
+        data = request.get_json()
+        amount = float(data['amount'])
+        
+        # Check if account is not opened
+        if account_id not in accounts_snapshot:
+            return jsonify({'error': 'Account not found'}), 404
+        
+        # Check if account is closed or not
+        if accounts_snapshot[account_id].status != 'active':
+            return jsonify({'error': 'Account is not active'}), 400
+        
+        if amount > accounts_snapshot[account_id].balance:
+            return jsonify({'error': 'Insufficient funds'}), 400
+        
+        event = create_event(
+            'funds_withdrawn',
+            account_id,
+            {
+                'amount': amount,
+                'description': data.get('description', 'Withdrawal')
+            }
+        )
+        
+        apply_event(event)
+        
+        return jsonify({
+            'message': 'Withdrawal successful',
+            'account_id': account_id,
+            'amount': amount,
+            'new_balance': accounts_snapshot[account_id].balance
+        })
+
+        
+
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+        
 
 @app.route('/accounts/<account_id>/transfer',methods=['POST'] )
 def transfer(account_id):
