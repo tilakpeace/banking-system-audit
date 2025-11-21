@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify
 import uuid
 from typing import Dict, Any
 from datetime import datetime
+import hashlib
+import json
 
 app = Flask(__name__)
 
@@ -56,6 +58,16 @@ class BankAccount:
             'created_at': self.created_at.isoformat()
         }
 
+    def to_checksum_dict(self):
+        """Returns a deterministic representation for checksum calculation"""
+        return {
+            'account_id': self.account_id,
+            'customer_name': self.customer_name,
+            'balance': round(self.balance, 2),  # Round to avoid floating point issues
+            'status': self.status,
+            'transaction_count': len(self.transactions)
+        }
+
 
 
 
@@ -104,6 +116,58 @@ def apply_event(event: Dict[str, Any]):
             account.close(data.get('reason', ''))
 
 
+def calculate_events_checksum() -> str:
+    """Calculate checksum of all events for verification"""
+    # Create deterministic representation of events
+    events_data = []
+    for event in sorted(events, key=lambda x: x['timestamp']):
+        events_data.append({
+            'event_type': event['event_type'],
+            'account_id': event['account_id'],
+            'data': event['data'],
+            'timestamp': event['timestamp']
+        })
+    
+    events_string = json.dumps(events_data, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(events_string.encode('utf-8')).hexdigest()
+
+def calculate_checksum(accounts_data: Dict[str, Any]) -> str:
+    """Calculate SHA-256 checksum of accounts state"""
+    # Create a deterministic string representation
+    accounts_list = []
+    for account_id in sorted(accounts_data.keys()):
+        account = accounts_data[account_id]
+        accounts_list.append(account.to_checksum_dict())
+    
+    state_string = json.dumps(accounts_list, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(state_string.encode('utf-8')).hexdigest()
+
+
+
+def replay_events() -> Dict[str, Any]:
+    """Replay all events to rebuild current state"""
+    global accounts_snapshot
+    accounts_snapshot = {}
+
+    print(f"Replaying {len(events)} events...")
+    
+    # Store events checksum before replay
+    events_checksum = calculate_events_checksum()
+
+    for event in sorted(events, key=lambda x: x['timestamp']):
+        apply_event(event)
+
+    # Calculate state checksum after replay
+    state_checksum = calculate_checksum(accounts_snapshot)
+    
+    print(f"Replay complete - {len(accounts_snapshot)} accounts rebuilt")
+
+
+    return {
+        'accounts_rebuilt': len(accounts_snapshot),
+        'state_checksum': state_checksum,
+        'events_checksum': events_checksum
+    }
 
 
 @app.route('/')
@@ -143,7 +207,7 @@ def open_account():
                 {
                     'customer_name': data.get('customer_name', 'Unknown'),
                     'initial_balance': float(0),
-                    'account_type': data.get('account_type', 'checking')
+                    # 'account_type': data.get('account_type', 'checking')
                 }
             )
 
@@ -282,7 +346,7 @@ def transfer(account_id):
             from_account,
             {
                 'amount': amount,
-                'description': "Transfer to {to_account}",
+                'description': f"Transfer to {to_account}",
                 'transfer_id': transfer_id
             }
         )
@@ -294,7 +358,7 @@ def transfer(account_id):
             to_account,
             {
                 'amount': amount,
-                'description': "Transfer from {from_account}",
+                'description': f"Transfer from {from_account}",
                 'transfer_id': transfer_id
             }
         )
@@ -364,13 +428,34 @@ def list_accounts():
 
 @app.route('/events' )
 def get_eventss():
-    return "test"
+    return jsonify({
+        'total_events': len(events),
+        'events': events
+    })
 
 
 
 @app.route('/replay', methods=['POST'] )
 def replay():
-    return "test"
+    try:
+        accounts_before = len(accounts_snapshot)
+        result=replay_events()
+        
+        return jsonify({
+            'message': 'Event replay completed successfully',
+            'events_processed': len(events),
+            'accounts_rebuilt': len(accounts_snapshot),
+            'accounts_before': accounts_before,
+            'accounts_after': len(accounts_snapshot),
+            'accounts_rebuilt': result['accounts_rebuilt'],
+
+            'state_checksum': result['state_checksum'],
+            'events_checksum': result['events_checksum'],
+            'verification': 'Identical checksums across replays confirm determinism'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 
 
