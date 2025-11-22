@@ -28,6 +28,11 @@ Command for project setup
 * Access url : http://127.0.0.1:5000/
 
 
+#### Command to handle test runs
+* Open two seperate terminals 
+* In first terminal, run command: python app.py  
+* In second terminal, run command: python test_replay_operation.py
+
 
 ## Overview
 
