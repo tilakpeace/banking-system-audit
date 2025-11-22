@@ -1,7 +1,7 @@
 # banking-system-audit
-This is MVP project which contains basic operation for banking sector. Operations are
-
-simulation
+This MVP project demonstrates basic simulated banking operations. Instead of using a database, account data is temporarily stored in an in-memory structure called accounts_snapshot. In a real production environment, this should be replaced with a proper database implementation.
+Additionally, all activity logs are maintained in memory under events.
+The primary goal of this project is to showcase replay functionality for data reconstruction.
 
 
 
